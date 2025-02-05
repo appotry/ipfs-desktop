@@ -16,14 +16,19 @@ asarUnpack: 'src/**/scripts/**/*'
 afterSign: './pkgs/macos/notarize-build.js'
 
 mac:
+  artifactName: ${name}-${version}-squirrel.${ext}
   category: public.app-category.utilities
   darkModeSupport: true
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: './pkgs/macos/entitlements.mac.plist'
   entitlementsInherit: './pkgs/macos/entitlements.mac.plist'
+  target:
+    - target: default
+      arch: ['universal']
 
 dmg:
+  artifactName: ${name}-${version}-mac.${ext}
   iconSize: 160
   iconTextSize: 12
   window:
@@ -54,7 +59,7 @@ linux:
   icon: ipfs-desktop
   category: Network;FileTransfer;P2P
   synopsis: A desktop client for IPFS
-  maintainer: henrique@protocol.ai
+  maintainer: gui@ipfs.tech
   target:
     - tar.xz
     - AppImage
@@ -85,7 +90,3 @@ protocols:
     role: Viewer
     schemes:
       - ipns
-  - name: DWEB
-    role: Viewer
-    schemes:
-      - dweb

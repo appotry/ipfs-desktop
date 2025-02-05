@@ -9,7 +9,12 @@ module.exports = function mockElectron (opts = {}) {
     BrowserWindow: {
       getAllWindows: sinon.stub()
     },
-    app: {}
+    app: {
+      getLocale: sinon.stub().returns('en-US')
+    },
+    clipboard: {
+      writeText: sinon.spy()
+    }
   }
 
   if (opts.withDock) {

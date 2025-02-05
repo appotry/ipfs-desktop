@@ -1,5 +1,6 @@
 const { app, shell } = require('electron')
 const toUri = require('multiaddr-to-uri')
+const getCtx = require('./context')
 
 function openLink (protocol, part, base) {
   shell.openExternal(`${base}/${protocol}/${part}`)
@@ -10,9 +11,10 @@ function parseAddr (addr) {
   return toUri(addr.toString().includes('/http') ? addr : addr.encapsulate('/http'))
 }
 
-async function parseUrl (url, ctx) {
-  const ipfsd = ctx.getIpfsd ? await ctx.getIpfsd(true) : null
-  let base = 'https://ipfs.io'
+async function handleOpenLink (url) {
+  const getIpfsd = await getCtx().getProp('getIpfsd')
+  const ipfsd = getIpfsd ? await getIpfsd(true) : null
+  let base = 'https://dweb.link'
 
   if (ipfsd && ipfsd.gatewayAddr) {
     base = parseAddr(ipfsd.gatewayAddr)
@@ -22,20 +24,16 @@ async function parseUrl (url, ctx) {
     return openLink('ipfs', url.slice(7), base)
   } else if (url.startsWith('ipns://')) {
     return openLink('ipns', url.slice(7), base)
-  } else if (url.startsWith('dweb:/ipfs/')) {
-    return openLink('ipfs', url.slice(11), base)
-  } else if (url.startsWith('dweb:/ipns/')) {
-    return openLink('ipns', url.slice(11), base)
   }
 
   return false
 }
 
-async function argvHandler (argv, ctx) {
+async function argvHandler (argv) {
   let handled = false
 
   for (const arg of argv) {
-    if (await parseUrl(arg, ctx)) {
+    if (await handleOpenLink(arg)) {
       handled = true
     }
   }
@@ -43,15 +41,15 @@ async function argvHandler (argv, ctx) {
   return handled
 }
 
-module.exports = function (ctx) {
+module.exports = function () {
   // Handle if the app started running now, and a link
   // was sent to be handled.
-  argvHandler(process.argv, ctx)
+  argvHandler(process.argv)
 
   // Handle URLs in macOS
-  app.on('open-url', (event, url) => {
+  app.on('open-url', async (event, url) => {
     event.preventDefault()
-    parseUrl(url, ctx)
+    handleOpenLink(url)
   })
 }
 

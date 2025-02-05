@@ -3,10 +3,14 @@ const { ipcMain } = require('electron')
 const logger = require('./common/logger')
 const { showDialog, recoverableErrorDialog } = require('./dialogs')
 const dock = require('./utils/dock')
+const ipcMainEvents = require('./common/ipc-main-events')
+const getCtx = require('./context')
 
-module.exports = function runGarbageCollector ({ getIpfsd }) {
+module.exports = function runGarbageCollector () {
   dock.run(async () => {
     logger.info('[run gc] alerting user for effects')
+    const ctx = getCtx()
+    const getIpfsd = ctx.getFn('getIpfsd')
 
     const opt = showDialog({
       title: i18n.t('runGarbageCollectorWarning.title'),
@@ -24,13 +28,13 @@ module.exports = function runGarbageCollector ({ getIpfsd }) {
       return
     }
 
-    const ipfsd = await getIpfsd()
+    const ipfsd = /** @type {(optional?: boolean) => Promise<any>} */(await getIpfsd())
 
     if (!ipfsd) {
       return
     }
 
-    ipcMain.emit('gcRunning')
+    ipcMain.emit(ipcMainEvents.GC_RUNNING)
 
     try {
       const errors = []
@@ -63,6 +67,6 @@ module.exports = function runGarbageCollector ({ getIpfsd }) {
       })
     }
 
-    ipcMain.emit('gcEnded')
+    ipcMain.emit(ipcMainEvents.GC_ENDED)
   })
 }

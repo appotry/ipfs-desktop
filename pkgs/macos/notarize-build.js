@@ -1,5 +1,5 @@
 require('dotenv').config()
-const { notarize } = require('electron-notarize')
+const { notarize } = require('@electron/notarize')
 
 const isSet = (value) => value && value !== 'false'
 
@@ -24,6 +24,8 @@ exports.default = async function notarizing (context) {
     appBundleId: 'io.ipfs.desktop',
     appPath: `${appOutDir}/${appName}.app`,
     appleId: process.env.APPLEID,
-    appleIdPassword: process.env.APPLEIDPASS
+    appleIdPassword: process.env.APPLEIDPASS,
+    tool: 'notarytool',
+    teamId: '7Y229E2YRL'
   })
 }

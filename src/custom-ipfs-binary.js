@@ -4,10 +4,13 @@ const { showDialog } = require('./dialogs')
 const logger = require('./common/logger')
 const store = require('./common/store')
 const dock = require('./utils/dock')
+const getCtx = require('./context')
 
 const SETTINGS_KEY = 'binaryPath'
 
-async function setCustomBinary (ctx) {
+async function setCustomBinary () {
+  const ctx = getCtx()
+  const restartIpfs = ctx.getFn('restartIpfs')
   await dock.run(async () => {
     logger.info('[custom binary] request to change')
     let opt = showDialog({
@@ -37,27 +40,29 @@ async function setCustomBinary (ctx) {
       return
     }
 
-    store.set(SETTINGS_KEY, filePaths[0])
+    store.safeSet(SETTINGS_KEY, filePaths[0], () => {
+      opt = showDialog({
+        showDock: false,
+        title: i18n.t('setCustomIpfsBinarySuccess.title'),
+        message: i18n.t('setCustomIpfsBinarySuccess.message', { path: filePaths[0] }),
+        buttons: [
+          i18n.t('restart'),
+          i18n.t('close')
+        ]
+      })
 
-    opt = showDialog({
-      showDock: false,
-      title: i18n.t('setCustomIpfsBinarySuccess.title'),
-      message: i18n.t('setCustomIpfsBinarySuccess.message', { path: filePaths[0] }),
-      buttons: [
-        i18n.t('restart'),
-        i18n.t('close')
-      ]
+      logger.info(`[custom binary] updated to ${filePaths[0]}`)
+
+      if (opt === 0) {
+        restartIpfs()
+      }
     })
-
-    logger.info(`[custom binary] updated to ${filePaths[0]}`)
-
-    if (opt === 0) {
-      ctx.restartIpfs()
-    }
   })
 }
 
-function clearCustomBinary (ctx) {
+function clearCustomBinary () {
+  const ctx = getCtx()
+  const restartIpfs = ctx.getFn('restartIpfs')
   store.delete(SETTINGS_KEY)
   logger.info('[custom binary] cleared')
 
@@ -71,7 +76,7 @@ function clearCustomBinary (ctx) {
   })
 
   if (opt === 0) {
-    ctx.restartIpfs()
+    restartIpfs()
   }
 }
 

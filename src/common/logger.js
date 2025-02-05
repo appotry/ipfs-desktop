@@ -1,11 +1,29 @@
+// @ts-check
 const { createLogger, format, transports } = require('winston')
 const { join } = require('path')
 const { app } = require('electron')
 const { performance } = require('perf_hooks')
 const Countly = require('countly-sdk-nodejs')
+const { analyticsKeys } = require('../analytics/keys')
 
-const { combine, splat, timestamp, printf } = format
-const logsPath = app.getPath('userData')
+/**
+ * @typedef {import('countly-sdk-nodejs').AnalyticsKeys} AnalyticsKeys
+ */
+
+/**
+ * @typedef {object} AnalyticsTimeOptions
+ * @property {keyof AnalyticsKeys} withAnalytics
+ */
+
+/**
+ * @typedef {object} AnalyticsTimeReturnValue
+ * @property {() => void} end
+ * @property {(str: string) => void} info
+ * @property {(err: Error) => void} fail
+ */
+
+const { combine, splat, timestamp, printf, errors } = format
+const logsPath = ['test', 'development'].includes(process.env.NODE_ENV ?? 'none') ? process.cwd() : app.getPath('userData')
 
 const errorFile = new transports.File({
   level: 'error',
@@ -18,6 +36,7 @@ errorFile.on('finish', () => {
 
 const logger = createLogger({
   format: combine(
+    errors({ stack: true }),
     timestamp(),
     splat(),
     printf(info => `${info.timestamp} ${info.level}: ${info.message}`)
@@ -37,8 +56,34 @@ const logger = createLogger({
 
 logger.info(`[meta] logs can be found on ${logsPath}`)
 
+/**
+ *
+ * @param {AnalyticsTimeOptions & Omit<import('countly-sdk-nodejs').CountlyAddEventOptions, 'key'>} opts
+ *
+ * @returns {void} void
+ */
+const addAnalyticsEvent = ({ withAnalytics, ...countlyOptions }) => {
+  if (withAnalytics) {
+    const key = analyticsKeys[withAnalytics]
+    if (key != null) {
+      const addEventOptions = { count: 1, ...countlyOptions, key }
+
+      Countly.add_event(addEventOptions)
+    } else {
+      logger.error(`Key '${withAnalytics}' is not a valid analyticsKey`)
+    }
+  }
+}
+
 module.exports = Object.freeze({
-  start: (msg, opts = {}) => {
+  /**
+   *
+   * @param {string} msg
+   * @param {AnalyticsTimeOptions & Omit<import('countly-sdk-nodejs').CountlyAddEventOptions, 'key'>} opts
+   *
+   * @returns {AnalyticsTimeReturnValue} AnalyticsTimeReturnValue
+   */
+  start: (msg, opts) => {
     const start = performance.now()
     logger.info(`${msg} STARTED`)
 
@@ -46,13 +91,7 @@ module.exports = Object.freeze({
       end: () => {
         const seconds = (performance.now() - start) / 1000
 
-        if (opts.withAnalytics) {
-          Countly.add_event({
-            key: opts.withAnalytics,
-            count: 1,
-            dur: seconds
-          })
-        }
+        addAnalyticsEvent({ ...opts, count: 1, dur: seconds })
 
         logger.info(`${msg} FINISHED ${seconds}s`)
       },
@@ -65,22 +104,52 @@ module.exports = Object.freeze({
       }
     }
   },
-
-  info: (msg, opts = {}) => {
-    if (opts.withAnalytics) {
-      Countly.add_event({
-        key: opts.withAnalytics,
-        count: 1
-      })
+  /**
+   *
+   * @param {string} msg
+   * @param {AnalyticsTimeOptions & Omit<import('countly-sdk-nodejs').CountlyAddEventOptions, 'key'>} [opts]
+   *
+   * @returns {void} void
+   */
+  info: (msg, opts) => {
+    if (opts) {
+      addAnalyticsEvent({ count: 1, ...opts })
     }
 
     logger.info(msg)
   },
 
-  error: (err) => {
-    Countly.log_error(err)
-    logger.error(err)
+  /**
+   *
+   * @param {Error|string} errMsg
+   * @param {Error|unknown} [error]
+   */
+  error: (errMsg, error) => {
+    if (errMsg instanceof Error) {
+      Countly.log_error(errMsg)
+      logger.error(errMsg)
+    } else if (error != null && error instanceof Error) {
+      // errorMessage is not an instance of an error, but error is
+      Countly.log_error(error)
+      logger.error(errMsg, error)
+    } else {
+      Countly.log_error(new Error(errMsg))
+      logger.error(errMsg, error)
+    }
   },
 
-  logsPath
+  warn: (msg, meta) => {
+    logger.warn(msg, meta)
+  },
+
+  debug: (msg) => {
+    logger.debug(msg)
+  },
+
+  logsPath,
+  addAnalyticsEvent,
+  /**
+   * For when you want to log something without potentially emitting it to countly
+   */
+  fileLogger: logger
 })

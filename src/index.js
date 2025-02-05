@@ -1,26 +1,39 @@
+// @ts-check
+const { registerAppStartTime, getSecondsSinceAppStart } = require('./metrics/appStart')
+registerAppStartTime()
 require('v8-compile-cache')
+
 const { app, dialog } = require('electron')
+
+if (process.env.NODE_ENV === 'test') {
+  const path = require('path')
+  if (process.env.HOME) {
+    app.setPath('home', process.env.HOME)
+    app.setPath('userData', path.join(process.env.HOME, 'data'))
+  }
+}
+
+const getCtx = require('./context')
 const fixPath = require('fix-path')
-const { criticalErrorDialog } = require('./dialogs')
 const logger = require('./common/logger')
 const setupProtocolHandlers = require('./protocol-handlers')
 const setupI18n = require('./i18n')
-const setupNpmOnIpfs = require('./npm-on-ipfs')
 const setupDaemon = require('./daemon')
 const setupWebUI = require('./webui')
 const setupAutoLaunch = require('./auto-launch')
 const setupAutoGc = require('./automatic-gc')
 const setupPubsub = require('./enable-pubsub')
 const setupNamesysPubsub = require('./enable-namesys-pubsub')
-const setupDownloadCid = require('./download-cid')
 const setupTakeScreenshot = require('./take-screenshot')
 const setupAppMenu = require('./app-menu')
 const setupArgvFilesHandler = require('./argv-files-handler')
 const setupAutoUpdater = require('./auto-updater')
 const setupTray = require('./tray')
-const setupIpfsOnPath = require('./ipfs-on-path')
 const setupAnalytics = require('./analytics')
 const setupSecondInstance = require('./second-instance')
+const { analyticsKeys } = require('./analytics/keys')
+const handleError = require('./handleError')
+const createSplashScreen = require('./splash/create-splash-screen')
 
 // Hide Dock
 if (app.dock) app.dock.hide()
@@ -36,22 +49,9 @@ if (!app.requestSingleInstanceLock()) {
   process.exit(0)
 }
 
-const ctx = {}
-
 app.on('will-finish-launching', () => {
-  setupProtocolHandlers(ctx)
+  setupProtocolHandlers()
 })
-
-function handleError (err) {
-  // Ignore network errors that might happen during the
-  // execution.
-  if (err.stack.includes('net::')) {
-    return
-  }
-
-  logger.error(err)
-  criticalErrorDialog(err)
-}
 
 process.on('uncaughtException', handleError)
 process.on('unhandledRejection', handleError)
@@ -65,30 +65,37 @@ async function run () {
   }
 
   try {
-    await setupAnalytics(ctx) // ctx.countlyDeviceId
-    await setupI18n(ctx)
-    await setupAppMenu(ctx)
-
-    await setupWebUI(ctx) // ctx.webui, launchWebUI
-    await setupAutoUpdater(ctx) // ctx.manualCheckForUpdates
-    await setupTray(ctx) // ctx.tray
-    await setupDaemon(ctx) // ctx.getIpfsd, startIpfs, stopIpfs, restartIpfs
-
     await Promise.all([
-      setupArgvFilesHandler(ctx),
-      setupAutoLaunch(ctx),
-      setupAutoGc(ctx),
-      setupPubsub(ctx),
-      setupNamesysPubsub(ctx),
-      setupSecondInstance(ctx),
+      createSplashScreen(),
+      setupDaemon(), // ctx.getIpfsd, startIpfs, stopIpfs, restartIpfs
+      setupAnalytics(), // ctx.countlyDeviceId
+      setupI18n(),
+      setupAppMenu(),
+
+      setupWebUI(), // ctx.webui, launchWebUI
+      setupAutoUpdater(), // ctx.manualCheckForUpdates
+      setupTray(), // ctx.tray
+      setupArgvFilesHandler(),
+      setupAutoLaunch(),
+      setupAutoGc(),
+      setupPubsub(),
+      setupNamesysPubsub(),
+      setupSecondInstance(),
       // Setup global shortcuts
-      setupDownloadCid(ctx),
-      setupTakeScreenshot(ctx),
-      // Setup PATH-related features
-      setupNpmOnIpfs(ctx),
-      setupIpfsOnPath(ctx)
+      setupTakeScreenshot()
     ])
+    const submitAppReady = () => {
+      logger.addAnalyticsEvent({ withAnalytics: analyticsKeys.APP_READY, dur: getSecondsSinceAppStart() })
+    }
+    const webui = await getCtx().getProp('webui')
+    if (webui.webContents.isLoading()) {
+      webui.webContents.once('dom-ready', submitAppReady)
+    } else {
+      submitAppReady()
+    }
   } catch (e) {
+    const splash = await getCtx().getProp('splashScreen')
+    if (splash && !splash.isDestroyed()) splash.hide()
     handleError(e)
   }
 }

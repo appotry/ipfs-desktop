@@ -5,10 +5,15 @@ const store = require('./common/store')
 const logger = require('./common/logger')
 const { showDialog, recoverableErrorDialog, selectDirectory } = require('./dialogs')
 const dock = require('./utils/dock')
+const { analyticsKeys } = require('./analytics/keys')
+const getCtx = require('./context')
 
-module.exports = function ({ stopIpfs, startIpfs }) {
+module.exports = function () {
   dock.run(async () => {
     logger.info('[move repository] user prompted about effects')
+    const ctx = getCtx()
+    const stopIpfs = ctx.getFn('stopIpfs')
+    const startIpfs = ctx.getFn('startIpfs')
 
     const opt = showDialog({
       title: i18n.t('moveRepositoryWarnDialog.title'),
@@ -68,7 +73,7 @@ module.exports = function ({ stopIpfs, startIpfs }) {
       await fs.move(currDir, newDir)
       logger.info(`[move repository] moved from ${currDir} to ${newDir}`)
     } catch (err) {
-      logger.error(`[move repository] ${err.toString()}`)
+      logger.error(`[move repository] error moving from '${currDir}' to '${newDir}'`, err)
       return recoverableErrorDialog(err, {
         title: i18n.t('moveRepositoryFailed.title'),
         message: i18n.t('moveRepositoryFailed.message', { currDir, newDir })
@@ -76,15 +81,17 @@ module.exports = function ({ stopIpfs, startIpfs }) {
     }
 
     config.path = newDir
-    store.set('ipfsConfig', config)
-    logger.info('[move repository] configuration updated', { withAnalytics: 'MOVE_REPOSITORY' })
 
-    showDialog({
-      title: i18n.t('moveRepositorySuccessDialog.title'),
-      message: i18n.t('moveRepositorySuccessDialog.message', { location: newDir }),
-      showDock: false
+    await store.safeSet('ipfsConfig', config, async () => {
+      logger.info('[move repository] configuration updated', { withAnalytics: analyticsKeys.MOVE_REPOSITORY })
+
+      showDialog({
+        title: i18n.t('moveRepositorySuccessDialog.title'),
+        message: i18n.t('moveRepositorySuccessDialog.message', { location: newDir }),
+        showDock: false
+      })
+
+      await startIpfs()
     })
-
-    await startIpfs()
   })
 }

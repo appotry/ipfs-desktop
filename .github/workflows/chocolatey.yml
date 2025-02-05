@@ -5,8 +5,8 @@ on:
     inputs:
       manual_name:
         required: true
-        description: 'Release number to publish (without v prefix)'
-        default: '0.0.0'
+        description: 'Release number to publish'
+        default: 'v0.0.0'
   release:
     types: [published]
 
@@ -22,15 +22,15 @@ jobs:
 
     steps:
       - name: Check out Git repository
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
 
       - name: Install Node.js
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v4
         with:
-          node-version: '14'
+          node-version: '18.17.1'
 
       - name: Cache bigger downloads
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         id: cache
         with:
           path: ${{ github.workspace }}/.cache
@@ -39,14 +39,24 @@ jobs:
             ${{ runner.os }}-${{ hashFiles('package.json', 'package-lock.json', 'electron-builder.yml') }}
             ${{ runner.os }}-
 
+      - name: Strip 'v' prefix and save as CHOCO_RELEASE_NAME
+        id: name
+        shell: bash
+        run: |
+          TAG=${{ github.event.inputs.manual_name || github.event.release.name }}
+          echo "CHOCO_RELEASE_NAME=${TAG#v}" >> $GITHUB_ENV
+
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --progress=false --cache ${{ github.workspace }}/.cache/npm
 
       - name: Download .exe, update version, URL and hash
-        run: node pkgs\chocolatey\update.js ${{ env.release_name }}
+        run: node update.mjs ${{ env.CHOCO_RELEASE_NAME }}
+        working-directory: .\pkgs\chocolatey
 
       - name: Create .nupkg
-        run: cd pkgs\chocolatey && choco pack
+        run: choco pack
+        working-directory: .\pkgs\chocolatey
 
       - name: Publish to Chocolatey
-        run: choco push pkgs/chocolatey/ipfs-desktop.${{ env.release_name }}.nupkg --key ${{ secrets.chocolatey_key }} --source "https://push.chocolatey.org"
+        run: choco push ipfs-desktop.${{ env.CHOCO_RELEASE_NAME }}.nupkg --key ${{ secrets.chocolatey_key }} --source "https://push.chocolatey.org"
+        working-directory: .\pkgs\chocolatey

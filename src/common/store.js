@@ -1,23 +1,30 @@
-const electron = require('electron')
+const { app } = require('electron')
 const Store = require('electron-store')
 
+const logger = require('./logger')
+
+const { fileLogger } = logger
+
+/**
+ * @type {import('./types').DesktopPersistentStore}
+ */
 const defaults = {
   ipfsConfig: {
-    type: 'go',
     path: '',
     flags: [
       '--agent-version-suffix=desktop',
       '--migrate',
-      '--enable-gc',
-      '--routing=dhtclient'
+      '--enable-gc'
     ]
   },
-  language: (electron.app || electron.remote.app).getLocale(),
-  experiments: {}
+  language: app.getLocale(),
+  experiments: {},
+  binaryPath: ''
 }
 
 const migrations = {
   '>=0.11.0': store => {
+    fileLogger.info('Running migration: >=0.11.0')
     store.delete('version')
 
     const flags = store.get('ipfsConfig.flags', [])
@@ -27,6 +34,7 @@ const migrations = {
     }
   },
   '>0.13.2': store => {
+    fileLogger.info('Running migration: >0.13.2')
     const flags = store.get('ipfsConfig.flags', [])
     const automaticGC = store.get('automaticGC', false)
     // ensure checkbox follows cli flag config
@@ -35,6 +43,7 @@ const migrations = {
     }
   },
   '>=0.17.0': store => {
+    fileLogger.info('Running migration: >=0.17.0')
     let flags = store.get('ipfsConfig.flags', [])
 
     // make sure version suffix is always present and normalized
@@ -52,10 +61,52 @@ const migrations = {
       flags.push('--routing=dhtclient')
       store.set('ipfsConfig.flags', flags)
     }
+  },
+  '>=0.20.6': store => {
+    fileLogger.info('Running migration: >=0.20.6')
+    let flags = store.get('ipfsConfig.flags', [])
+
+    // use default instead of hard-coded dhtclient
+    const dhtClientFlag = '--routing=dhtclient'
+    if (flags.includes(dhtClientFlag)) {
+      flags = flags.filter(f => f !== dhtClientFlag)
+      store.set('ipfsConfig.flags', flags)
+    }
   }
 }
 
-const store = new Store({
+/**
+ * @extends {Store<import('./types').DesktopPersistentStore>}
+ */
+class StoreWrapper extends Store {
+  constructor (options) {
+    super(options)
+
+    /**
+     * @template {unknown} R
+     * @param {string} key
+     * @param {unknown} value
+     * @param {() => Promise<R>|R|void} [onSuccessFn]
+     * @returns {Promise<R|void>}
+     */
+    this.safeSet = async function (key, value, onSuccessFn) {
+      try {
+        this.set(key, value)
+        if (typeof onSuccessFn === 'function') {
+          try {
+            return await onSuccessFn()
+          } catch (err) {
+            logger.error(`[store.safeSet] Error calling onSuccessFn for '${key}'`, /** @type {Error} */(err))
+          }
+        }
+      } catch (err) {
+        logger.error(`[store.safeSet] Could not set store key '${key}' to '${value}'`, /** @type {Error} */(err))
+      }
+    }
+  }
+}
+
+const store = new StoreWrapper({
   defaults,
   migrations
 })
